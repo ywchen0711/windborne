@@ -181,8 +181,8 @@ function startAttack() {
   const w = cur('w'); if (B.mode !== 'ground' && B.mode !== 'air') return;
   const kind = w ? WEAPONS[w.id].kind : 'one';
   if (w && w.rest > 0) { msg(T('這把劍正在休息，等一下再用吧。', 'This blade is resting. Wait a little.')); return; }
-  atkKind = kind; atkDur = kind === 'two' ? 0.72 : kind === 'spear' ? 0.32 : 0.4; atkT = 0; swung = false;
-  combo = comboT > 0 ? combo + 1 : 0; comboT = 1.0; SND.sfx('swing');
+  combo = comboT > 0 ? combo + 1 : 0;
+  atkKind = kind; atkDur = kind === 'two' ? (combo % 2 ? 0.66 : 0.78) : kind === 'spear' ? 0.36 : combo % 3 === 2 ? 0.5 : 0.42; atkT = 0; swung = false; comboT = 1.0; SND.sfx('swing');
   const tg = target && Math.hypot(target.x - B.x, target.z - B.z) < 7 ? target : null; if (tg) B.yaw = Math.atan2(tg.x - B.x, tg.z - B.z);
   if (B.mode === 'ground') { B.vx += Math.sin(B.yaw) * 2.5; B.vz += Math.cos(B.yaw) * 2.5; }
 }
@@ -202,6 +202,27 @@ function doHit() {
   if (hits) { hitStop = 0.07; shake = Math.max(shake, 0.12); }
   if (hits && w && !WEAPONS[w.id].recharge) wear('w', hits);
   else if (hits && w && WEAPONS[w.id].recharge) { w.dur -= hits; if (w.dur <= 0) { w.dur = 0; w.rest = 90; msg(T('曉光之劍的光芒暗了下來……它需要休息。', 'The Sword of Dawn dims… it needs to rest.')); } }
+}
+// a ribbon of light that follows the blade through the strike
+const TRAIL_N = 16, trailPos = new Float32Array(TRAIL_N * 2 * 3), trailCol = new Float32Array(TRAIL_N * 2 * 3), trailPts = [];
+const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3)); trailGeo.setAttribute('color', new THREE.BufferAttribute(trailCol, 3));
+{ const idx = []; for (let i = 0; i < TRAIL_N - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } trailGeo.setIndex(idx); }
+const trail = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+trail.frustumCulled = false; gfx.scene.add(trail);
+const tA = new THREE.Vector3(), tB = new THREE.Vector3();
+function swingTrail(dt) {
+  const p = atkT >= 0 ? atkT / atkDur : -1, wpn = hero && hero.userData.P.armRh.children[0];
+  if (p > 0.3 && p < 0.72 && wpn && wpn.userData.len) { const L2 = wpn.userData.len; wpn.updateWorldMatrix(true, false); wpn.localToWorld(tA.set(0, L2 * 0.35, 0)); wpn.localToWorld(tB.set(0, L2 + 0.15, 0)); trailPts.unshift([tA.clone(), tB.clone(), 1]); }
+  for (const q of trailPts) q[2] -= dt * 5;
+  while (trailPts.length > TRAIL_N || (trailPts.length && trailPts[trailPts.length - 1][2] <= 0)) trailPts.pop();
+  trail.visible = trailPts.length > 1;
+  if (!trail.visible) return;
+  for (let i = 0; i < TRAIL_N; i++) {
+    const q = trailPts[Math.min(i, trailPts.length - 1)], f = Math.max(0, q[2]) * (1 - i / TRAIL_N);
+    trailPos.set([q[0].x, q[0].y, q[0].z, q[1].x, q[1].y, q[1].z], i * 6);
+    trailCol.set([f * 0.15, f * 0.18, f * 0.22, f * 0.95, f * 0.95, f], i * 6);
+  }
+  trailGeo.attributes.position.needsUpdate = true; trailGeo.attributes.color.needsUpdate = true;
 }
 function cycleWeapon(d) {
   if (S.weapons.length < 2) { if (S.weapons.length) UI.quick(S.weapons, S.eq.w, WEAPONS); return; }
@@ -571,10 +592,13 @@ function frame() {
   pressed.clear(); wheel = 0;
   updateCamera(rdt, aiming || (S.rune && ['magnet', 'stasis', 'ice'].includes(S.rune) && down('runeAim')));
   // the hero's pose
-  const sp = Math.hypot(B.vx, B.vz), hold = atkT >= 0 || blocking ? 'weapon' : aiming ? 'bow' : null;
+  const dbgA = window.__atkPose;      // tests: freeze a swing at some point { p, kind, combo }
+  const sp = Math.hypot(B.vx, B.vz), hold = atkT >= 0 || blocking || dbgA ? 'weapon' : aiming ? 'bow' : null;
   setGear(hero, { weapon: cur('w')?.id, bow: cur('b')?.id, shield: cur('s')?.id }, hold);
   hero.position.set(B.x, B.y, B.z); hero.rotation.y = B.yaw;
-  poseHero(hero, { mode: B.mode, speed: sp, t: t0 / 1000, attack: atkT >= 0 ? atkT / atkDur : -1, kind: atkKind, combo, aim: aiming, block: blocking, climbMove: B.mode === 'climb' && Math.hypot(inp.ix, inp.iy) > 0.1 && !B.exhausted, swimMove: sp > 0.5, dead, land: B.landed, hop: B.hopT });
+  const nearGround = B.mode === 'air' && atkT >= 0 && B.y - groundAt(L, B.x, B.z, B.y).h < 0.9;
+  poseHero(hero, { mode: nearGround ? 'ground' : B.mode, speed: sp, t: t0 / 1000, attack: dbgA ? dbgA.p : atkT >= 0 ? atkT / atkDur : -1, kind: dbgA ? dbgA.kind : atkKind, combo: dbgA ? dbgA.combo : combo, aim: aiming, block: blocking, climbMove: B.mode === 'climb' && Math.hypot(inp.ix, inp.iy) > 0.1 && !B.exhausted, swimMove: sp > 0.5, dead, land: B.landed, hop: B.hopT });
+  swingTrail(rdt);
   hero.visible = invuln <= 0 || Math.floor(t0 / 70) % 2 === 0 || dead;
   // the world's look
   const rainy = S.rain && !inShrine && regionAt(B.x, B.z) !== 'desert';
@@ -615,7 +639,7 @@ function step(dt, rdt) {
   invuln -= dt; comboT -= dt; bombCD -= dt; runeCD -= dt;
   const canAct = B.mode === 'ground' || B.mode === 'air' || B.mode === 'glide';
   if ((hit('attack') || (isTouch && hit('attack'))) && atkT < 0 && !aiming && (B.mode === 'ground' || B.mode === 'air')) startAttack();
-  if (atkT >= 0) { atkT += dt; if (!swung && atkT >= atkDur * 0.45) { swung = true; doHit(); } if (atkT >= atkDur) atkT = -1; }
+  if (atkT >= 0) { atkT += dt; if (!swung && atkT >= atkDur * 0.5) { swung = true; doHit(); } if (atkT >= atkDur) atkT = -1; }
   const wantAim = (mouseR || down('bow')) && cur('b') && canAct;
   if (wantAim && !aiming) { aiming = true; aimT = 0; }
   if (aiming) {

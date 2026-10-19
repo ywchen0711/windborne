@@ -141,7 +141,7 @@ export function setGear(hero, gear, hold) {
 export function poseHero(hero, s) {
   const P = hero.userData.P, body = hero.userData.body, t = s.t;
   const set = (o, x = 0, y = 0, z = 0) => o.rotation.set(x, y, z);
-  for (const k of ['hips', 'armL', 'armR', 'legL', 'legR', 'armLf', 'armRf', 'headP']) set(P[k]);
+  for (const k of ['hips', 'armL', 'armR', 'legL', 'legR', 'armLf', 'armRf', 'headP', 'armRh']) set(P[k]);
   P.hips.position.set(0, 0.92, 0); body.rotation.set(0, 0, 0); body.position.set(0, 0, 0); P.glider.visible = false;
   if (s.dead) { body.rotation.x = -1.5; body.position.y = 0.25; return; }
   const sp = s.speed;
@@ -169,12 +169,47 @@ export function poseHero(hero, s) {
   // the fighting arms
   if (s.block) { set(P.armL, -1.4, 0.5, 0); set(P.armLf, -0.5); }
   if (s.aim) { set(P.armL, -1.55, 0.2, 0); set(P.armR, -1.5, -0.5, 0); set(P.armRf, -1.6); set(P.headP, 0, 0.15, 0); }
-  if (s.attack >= 0) {
-    const a = s.attack, k = s.kind;
-    if (k === 'spear') { set(P.armR, -1.5, 0, 0); P.armR.position.z = Math.sin(a * Math.PI) * 0.5; set(P.armRf, 0); P.hips.rotation.y = -0.2; }
-    else if (k === 'spin') { set(P.armR, -1.5, 0, 0); body.rotation.y = a * Math.PI * 2; }
-    else { const sw = k === 'two' ? 2.6 : 2.2, st = s.combo % 2 ? -1 : 1; set(P.armR, -2.4 + a * sw, st * 0.6 - a * st * 1.2, 0); set(P.armRf, -0.2); P.hips.rotation.y = st * (0.4 - a * 0.8); }
-  } else P.armR.position.z = 0;
+  P.armR.position.z = 0;
+  if (s.attack >= 0) attackPose(P, s.kind, s.combo, s.attack);
+}
+// ---------------------------------------------------------------- attacks: wind up, strike fast, recover, then blend back
+// a key pose: hy/hx hips turn and lean, hd how far the hips drop, aR/aL arms [x, y, z], aRf/aLf elbows, lL/lR legs, pz the right arm reaching forward
+// wr: the wrist. The blade's angle is arm + elbow + wrist: about -2 points it up behind you, 0 straight ahead, 1 down along a lowered arm
+const STANCE = { hy: 0, hx: 0.05, hd: 0.06, aR: [-0.35, 0, -0.25], aRf: -0.45, aL: [-0.3, 0, 0.35], aLf: -0.4, lL: -0.35, lR: 0.3, pz: 0, wr: 0.3 };
+const KEYS = {
+  one: [
+    { wind: { hy: -0.6, hx: -0.05, aR: [-2.7, 0, -0.7], aRf: -0.55, aL: [-0.7, 0, 0.6], wr: 0.95 }, hit: { hy: 0.55, hx: 0.2, hd: 0.1, aR: [-0.7, 0, 0.6], aRf: -0.1, aL: [0.3, 0, 0.4], wr: 1.25 } },        // a diagonal cut, right to left
+    { wind: { hy: 0.55, aR: [-1.6, 0, 0.95], aRf: -1.3, aL: [-0.2, 0, 0.5], wr: 0.9 }, hit: { hy: -0.65, hx: 0.12, hd: 0.08, aR: [-1.45, 0, -1.35], aRf: -0.1, aL: [-0.6, 0, 0.3], wr: 1.45 } },                 // a backhand, left to right
+    { wind: { hy: -0.2, hx: -0.22, aR: [-3.3, 0, -0.2], aRf: -0.65, aL: [-1.0, 0, 0.5], wr: 1.75 }, hit: { hy: 0.1, hx: 0.38, hd: 0.15, aR: [-0.5, 0, -0.05], aRf: 0, aL: [0.2, 0, 0.3], lL: -0.55, lR: 0.5, wr: 1.4 } },   // an overhead chop
+  ],
+  two: [
+    { wind: { hy: -0.3, hx: -0.28, hd: 0.02, aR: [-3.2, 0, -0.25], aRf: -0.7, aL: [-3.1, 0, 0.45], aLf: -0.65, lL: -0.5, lR: 0.45, wr: 1.9 },
+      hit: { hy: 0.05, hx: 0.48, hd: 0.2, aR: [-0.55, 0, -0.05], aRf: -0.05, aL: [-0.62, 0, 0.35], aLf: -0.1, lL: -0.62, lR: 0.55, wr: 1.6 } },                                                       // a heavy overhead blow
+    { wind: { hy: -1.15, hx: 0.05, aR: [-1.45, 0, -0.95], aRf: -0.3, aL: [-1.35, 0, 0.25], aLf: -0.9, lL: -0.45, lR: 0.45, wr: 1.2 },
+      hit: { hy: 1.05, hx: 0.18, hd: 0.12, aR: [-1.5, 0, 0.75], aRf: -0.1, aL: [-1.3, 0, 0.95], aLf: -0.3, lL: -0.5, lR: 0.5, wr: 1.4 } },                                                              // a wide sweep
+  ],
+  spear: [
+    { wind: { hy: -0.35, hx: -0.05, aR: [-1.25, 0, -0.3], aRf: -1.35, aL: [-1.2, 0, 0.6], aLf: -0.4, pz: -0.28, lL: -0.3, lR: 0.35, wr: 2.4 },
+      hit: { hy: 0.12, hx: 0.25, hd: 0.1, aR: [-1.55, 0, 0.05], aRf: -0.05, aL: [-1.45, 0, 0.35], aLf: -0.1, pz: 0.42, lL: -0.62, lR: 0.55, wr: 1.6 } },
+  ],
+};
+const ease = { out: (t) => 1 - (1 - t) ** 3, in: (t) => t * t * t, io: (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2) };
+const L1 = (a, b, t) => a + (b - a) * t, L3 = (a, b, t) => [L1(a[0], b[0], t), L1(a[1], b[1], t), L1(a[2], b[2], t)];
+function attackPose(P, kind, combo, p) {
+  const list = KEYS[kind] || KEYS.one, K = list[combo % list.length], W = { ...STANCE, ...K.wind }, H = { ...STANCE, ...K.hit };
+  let a, b, t;
+  if (p < 0.38) { a = STANCE; b = W; t = ease.out(p / 0.38); }                 // wind up, slowing at the top
+  else if (p < 0.56) { a = W; b = H; t = ease.in((p - 0.38) / 0.18); }      // the strike, accelerating into the hit
+  else { a = H; b = STANCE; t = ease.io((p - 0.56) / 0.44); }               // follow through and recover
+  const k = {}; for (const key of Object.keys(STANCE)) k[key] = Array.isArray(STANCE[key]) ? L3(a[key], b[key], t) : L1(a[key], b[key], t);
+  const w = p > 0.82 ? 1 - (p - 0.82) / 0.18 : p < 0.06 ? p / 0.06 : 1;    // fade in from, and back out to, the walking pose
+  const blend = (o, x, y, z) => o.rotation.set(L1(o.rotation.x, x, w), L1(o.rotation.y, y, w), L1(o.rotation.z, z, w));
+  blend(P.hips, k.hx, k.hy, 0); P.hips.position.y -= k.hd * w;
+  blend(P.armR, ...k.aR); blend(P.armRf, k.aRf, 0, 0); blend(P.armL, ...k.aL); blend(P.armLf, k.aLf, 0, 0);
+  blend(P.legL, k.lL - k.hx, -k.hy, 0); blend(P.legR, k.lR - k.hx, -k.hy, 0);   // the legs stay planted while the body turns and leans
+  blend(P.headP, -k.hx * 0.5, -k.hy * 0.5, 0);                             // the eyes stay on the target
+  P.armR.position.z = k.pz * w;
+  blend(P.armRh, k.wr, 0, 0);
 }
 
 // ---------------------------------------------------------------- enemies and animals
