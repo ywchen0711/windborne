@@ -151,7 +151,7 @@ export function poseHero(hero, s) {
     set(P.armL, -Math.sin(ph) * a * 0.8); set(P.armR, Math.sin(ph) * a * 0.8); set(P.armLf, -0.3 * a); set(P.armRf, -0.3 * a);
     P.hips.position.y = 0.92 + Math.abs(Math.sin(ph)) * 0.05 * a + (sp < 0.2 ? Math.sin(t * 2) * 0.008 : 0);
     if (sp > 6) P.hips.rotation.x = 0.25;
-    if (s.land > 0) { P.hips.position.y -= s.land * 0.6; set(P.legL, -0.6 * s.land * 3); set(P.legR, -0.6 * s.land * 3); }
+    if (s.land > 0 && sp < 3) { const k = s.land / 0.25; P.hips.position.y -= k * 0.12; P.legL.rotation.x -= 0.5 * k; P.legR.rotation.x -= 0.5 * k; }
   } else if (s.mode === 'air') {
     set(P.legL, -0.6); set(P.legR, 0.3); set(P.armL, -0.4, 0, 0.5); set(P.armR, -0.4, 0, -0.5);
   } else if (s.mode === 'glide') {

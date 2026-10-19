@@ -59,6 +59,7 @@ export function newBody(x, y, z) {
 // opt: { glider, climbMul, stamMax, updraft(x,z,y) }; returns events: { fall: metres, drown: true, splash: true }
 export function stepBody(B, dt, inp, L, opt) {
   const ev = {}, len = Math.hypot(inp.mx, inp.mz), smax = opt.stamMax;
+  B.landed = Math.max(0, B.landed - dt); B.hopT = Math.max(0, B.hopT - dt);       // the landing crouch and the climbing hop wear off
   const useStam = (n) => { B.stamina = Math.max(0, B.stamina - n); B.idleStam = 0; if (B.stamina <= 0) B.exhausted = true; };
   B.sprinting = false; B.moving = len > 0.05;
   const water = L.water(B.x, B.z);
