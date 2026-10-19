@@ -9,6 +9,34 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const btn = (label, fn, cls = '') => { const b = el('button', cls, label); b.onclick = (e) => { e.stopPropagation(); fn(e); }; return b; };
 export const name = (id) => { const d = itemDef(id); return d ? T(d.name) : id; };
+// little drawn icons for every kind of gear, tinted with the item's colour
+export function icon(id) {
+  const w = WEAPONS[id], b = BOWS[id], s = SHIELDS[id], m = MATS[id], c = (w || b || s || m || {}).col || '#ccc';
+  const wrap = (inner) => `<svg viewBox="0 0 40 40">${inner}</svg>`, st = 'stroke="#141018" stroke-width="2" stroke-linejoin="round"';
+  if (w && (id === 'w_branch' || id === 'w_torch' || id.includes('club') || id === 'w_spiked' || id === 'w_dragonbone')) return wrap(`<path d="M10 33 L28 9" stroke="#141018" stroke-width="8" stroke-linecap="round"/><path d="M10 33 L28 9" stroke="${c}" stroke-width="5" stroke-linecap="round"/>${id === 'w_torch' ? '<circle cx="29" cy="8" r="6" fill="#ffb040" stroke="#141018" stroke-width="2"/>' : ''}`);
+  if (w && w.kind === 'spear') return wrap(`<path d="M7 35 L30 10" stroke="#141018" stroke-width="5"/><path d="M7 35 L30 10" stroke="#8a5a2a" stroke-width="2.5"/><path d="M28 6 L36 4 L34 12 L27 14 Z" fill="${c}" ${st}/>`);
+  if (w && id === 'w_axe') return wrap(`<path d="M10 35 L27 10" stroke="#141018" stroke-width="5"/><path d="M10 35 L27 10" stroke="#8a5a2a" stroke-width="2.5"/><path d="M22 6 Q34 6 34 18 L26 14 Z" fill="#b0b8c0" ${st}/>`);
+  if (w) { const k = w.kind === 'two' ? 1.3 : 1; return wrap(`<path d="M${20 - 3 * k} 30 L${20 - 3 * k} ${8 - 2 * k} L20 ${3 - 2 * k} L${20 + 3 * k} ${8 - 2 * k} L${20 + 3 * k} 30 Z" fill="${c}" ${st}/><rect x="11" y="29" width="18" height="4" rx="1" fill="#d8b040" ${st}/><rect x="18" y="33" width="4" height="5" fill="#6a4426" ${st}/>`); }
+  if (b) return wrap(`<path d="M12 4 Q34 20 12 36" fill="none" stroke="#141018" stroke-width="6"/><path d="M12 4 Q34 20 12 36" fill="none" stroke="${c}" stroke-width="3.5"/><path d="M12 4 L12 36" stroke="#f0f0f0" stroke-width="1.2"/>`);
+  if (s) return wrap(id === 's_potlid' ? `<circle cx="20" cy="20" r="14" fill="${c}" ${st}/><circle cx="20" cy="20" r="3" fill="#5a4a3a"/>` : `<path d="M8 6 L32 6 L32 18 Q32 32 20 37 Q8 32 8 18 Z" fill="${c}" ${st}/><path d="M20 8 L20 34" stroke="#e8d8a0" stroke-width="3"/>`);
+  if (m) return wrap(`<circle cx="20" cy="22" r="11" fill="${c}" ${st}/><path d="M20 11 Q24 5 28 7" fill="none" stroke="#3a7a2a" stroke-width="2.5"/>`);
+  return wrap(`<circle cx="20" cy="20" r="10" fill="${c}" ${st}/>`);
+}
+// the control hints in the corner: [[key, label, hot]]
+let hintKey = '';
+export function hints(list) {
+  const k = JSON.stringify(list); if (k === hintKey) return; hintKey = k;
+  $('#hints').innerHTML = list.map(([key, label, hot]) => `<div class="${hot ? 'hot' : ''}"><kbd class="${/click|左鍵|右鍵|滾輪|Wheel|Click/.test(key) ? 'm' : ''}">${esc(key)}</kbd>${esc(label)}</div>`).join('');
+}
+// quick select: a row of icons with the current one highlighted, shown for a moment
+let quickT = null;
+export function quick(list, cur, defs) {
+  const q = $('#quick'); q.innerHTML = list.map((it, i) => `<div class="q${i === cur ? ' on' : ''}">${icon(it.id)}<div class="bar"><i style="width:${Math.max(4, (it.dur / defs[it.id].dur) * 100)}%"></i></div></div>`).join('');
+  q.classList.add('on'); clearTimeout(quickT); quickT = setTimeout(() => q.classList.remove('on'), 1400);
+}
+// a tip card that slides in once
+let tipT = null;
+export function tip(title, text) { const t = $('#tip'); t.innerHTML = `<b>${esc(T(title))}</b>${T(text)}`; t.classList.add('on'); clearTimeout(tipT); tipT = setTimeout(() => t.classList.remove('on'), 9000); }
 let G = null;
 
 export function initUI(game) { G = game; }
@@ -32,9 +60,9 @@ export function hud(dt) {
     const runeIcon = { magnet: '🧲', bomb: '💣', ice: '🧊', stasis: '⏳' };
     $('#gear').innerHTML = `
       <div class="slot rune">${S.rune ? `${runeIcon[S.rune]}<small>${T(RUNE_NAME[S.rune])}</small>` : '<small>—</small>'}</div>
-      <div class="slot">⚔<small>${w ? esc(name(w.id)) : T('空手', 'Bare hands')}</small><b class="dur">${bar(w, w && WEAPONS[w.id])}</b></div>
-      <div class="slot">🏹<small>${b ? esc(name(b.id)) + ` · ${S.arrows}` : '—'}</small><b class="dur">${bar(b, b && BOWS[b.id])}</b></div>
-      <div class="slot">🛡<small>${s ? esc(name(s.id)) : '—'}</small><b class="dur">${bar(s, s && SHIELDS[s.id])}</b></div>
+      <div class="slot">${w ? icon(w.id) : '✊'}<small>${w ? esc(name(w.id)) : T('空手', 'Bare hands')}</small><b class="dur">${bar(w, w && WEAPONS[w.id])}</b></div>
+      <div class="slot">${b ? icon(b.id) : '—'}<small>${b ? `🏹 ${S.arrows}` : T('沒有弓', 'No bow')}</small><b class="dur">${bar(b, b && BOWS[b.id])}</b></div>
+      <div class="slot">${s ? icon(s.id) : '—'}<small>${s ? esc(name(s.id)) : T('沒有盾', 'No shield')}</small><b class="dur">${bar(s, s && SHIELDS[s.id])}</b></div>
       ${G.gift && G.gift() ? `<div class="slot gift">${G.gift()}</div>` : ''}`;
   }
   const hh = Math.floor(S.time), mm = Math.floor((S.time % 1) * 60);
@@ -97,7 +125,7 @@ function revealed() {
 
 // ---------------------------------------------------------------- prompts and notices
 let promptText = null;
-export function prompt(t) { if (t === promptText) return; promptText = t; const p = $('#prompt'); p.textContent = t ? `${G.touch ? '' : 'E  '}${t}` : ''; p.style.display = t ? 'block' : 'none'; const b = $('#t-act'); if (b) b.style.display = t ? 'flex' : 'none'; }
+export function prompt(t) { if (t === promptText) return; promptText = t; const p = $('#prompt'); p.innerHTML = t ? `${G.touch ? '✋ ' : '<kbd>E</kbd>'}${esc(t)}` : ''; p.style.display = t ? 'block' : 'none'; const b = $('#t-act'); if (b) b.style.display = t ? 'flex' : 'none'; }
 export function toast(t, big) { const d = el('div', 'toast' + (big ? ' big' : ''), t); $('#toasts').appendChild(d); setTimeout(() => d.classList.add('out'), big ? 2600 : 1800); setTimeout(() => d.remove(), big ? 3200 : 2400); }
 let bannerT = null;
 export function banner(title, sub = '') { const b = $('#banner'); b.innerHTML = `<div>${esc(title)}</div>${sub ? `<small>${esc(sub)}</small>` : ''}`; b.classList.add('on'); clearTimeout(bannerT); bannerT = setTimeout(() => b.classList.remove('on'), 3200); }
@@ -140,17 +168,18 @@ export function openMenu(tab = 'weapons') {
   if (tab === 'system') return systemMenu();
   frame(T('背包', 'Inventory') + `   💰 ${S.gold}`, TABS, tab, (b) => {
     const grid = el('div', 'grid');
-    const card = (label, sub, on, onClick, extra = '') => { const c = el('div', 'card' + (on ? ' on' : ''), `<b>${label}</b><small>${sub}</small>${extra}`); c.onclick = onClick; grid.appendChild(c); return c; };
+    const card = (label, sub, on, onClick, extra = '', id = null) => { const c = el('div', 'card' + (on ? ' on' : ''), `${id ? `<div class="ic">${icon(id)}</div>` : ''}<div class="tx"><b>${label}</b><small>${sub}</small>${extra}</div>`); c.onclick = onClick; grid.appendChild(c); return c; };
     const durBar = (it, def) => `<i class="dur"><i style="width:${Math.max(4, (it.dur / def.dur) * 100)}%"></i></i>`;
     if (tab === 'weapons' || tab === 'bows' || tab === 'shields') {
       const list = tab === 'weapons' ? S.weapons : tab === 'bows' ? S.bows : S.shields, DEF = tab === 'weapons' ? WEAPONS : tab === 'bows' ? BOWS : SHIELDS, k = tab[0];
       b.appendChild(el('p', 'sm', `${T('欄位', 'Slots')} ${list.length} / ${S.slots[k]}`));
-      list.forEach((it, i) => { const d = DEF[it.id]; card(esc(T(d.name)), tab === 'shields' ? `${T('防禦', 'Guard')} ${d.guard}` : `${T('攻擊', 'Attack')} ${d.pow}${d.kind === 'two' ? T(' · 雙手', ' · two-handed') : d.kind === 'spear' ? T(' · 長槍', ' · spear') : ''}`, S.eq[k] === i, () => itemAct(k, i), durBar(it, d)); });
+      b.appendChild(el('p', 'sm', T('點一下裝備或丟棄。遊戲中用滑鼠滾輪快速切換武器。', 'Click to equip or drop. In the field, the mouse wheel switches weapons quickly.')));
+      list.forEach((it, i) => { const d = DEF[it.id]; card(esc(T(d.name)), tab === 'shields' ? `${T('防禦', 'Guard')} ${d.guard}` : `${T('攻擊', 'Attack')} ${d.pow}${d.kind === 'two' ? T(' · 雙手', ' · two-handed') : d.kind === 'spear' ? T(' · 長槍', ' · spear') : ''}`, S.eq[k] === i, () => itemAct(k, i), durBar(it, d), it.id); });
       if (tab === 'bows') b.appendChild(el('p', 'sm', `🏹 ${T('箭', 'Arrows')} × ${S.arrows}`));
     } else if (tab === 'outfits') {
       for (const id of S.outfits) { const o = OUTFITS[id]; card(esc(T(o.name)), `${T('防禦', 'Defence')} ${o.def}${o.perk ? ' · ' + esc(T(o.perk)) : ''}`, S.outfit === id, () => { S.outfit = id; G.gearChanged(); openMenu('outfits'); }); }
     } else if (tab === 'mats') {
-      for (const [id, n] of Object.entries(S.mats)) if (n > 0) { const m = MATS[id]; card(`${esc(T(m.name))} ×${n}`, m.food ? `❤ ${(m.heal / 4).toFixed(2).replace(/\.?0+$/, '')}${m.fx ? ' · ' + fxName(m.fx) : ''}` : `💰 ${m.price}`, false, () => m.food && eatRaw(id)); }
+      for (const [id, n] of Object.entries(S.mats)) if (n > 0) { const m = MATS[id]; card(`${esc(T(m.name))} ×${n}`, m.food ? `❤ ${(m.heal / 4).toFixed(2).replace(/\.?0+$/, '')}${m.fx ? ' · ' + fxName(m.fx) : ''}` : `💰 ${m.price}`, false, () => m.food && eatRaw(id), '', id); }
       if (!Object.values(S.mats).some((n) => n > 0)) b.appendChild(el('p', 'sm', T('還沒有素材。採集植物、狩獵、打倒魔物都能得到素材。', 'No materials yet. Pick plants, hunt and defeat monsters to gather them.')));
     } else if (tab === 'food') {
       S.food.forEach((f, i) => card(esc(T(f.name)), `${f.heal >= 999 ? T('完全回復', 'Full heal') : '❤ ' + (f.heal / 4)}${f.fx ? ' · ' + fxName(f.fx) : ''}`, false, () => { G.eat(f); S.food.splice(i, 1); openMenu('food'); }));
@@ -219,8 +248,8 @@ function systemMenu() {
     b.appendChild(list);
   });
 }
-const HELP_ZH = '<b>鍵盤</b>：WASD 移動 · 滑鼠看 (點畫面鎖定) · Shift 衝刺/游泳加速/攀爬時放手 · 空白 跳/攀爬跳/空中開滑翔傘 · 左鍵 攻擊 · 右鍵按住 拉弓 · Q 按住 舉盾 · E 調查/撿 · R 使用符文 · 1-4 換符文 · Tab 背包 · M 地圖 · G/F 英傑之力 · 滾輪 磁力遠近<br><b>手機</b>：左半邊搖桿，右半邊滑動看，右側按鈕';
-const HELP_EN = '<b>Keyboard</b>: WASD move · mouse look (click to lock) · Shift sprint / swim dash / let go while climbing · Space jump / climb-jump / open the glider in the air · Left click attack · hold Right click aim the bow · hold Q shield · E interact · R use rune · 1-4 choose rune · Tab inventory · M map · G/F champion gifts · wheel: magnet distance<br><b>Touch</b>: left half stick, right half drag to look, buttons on the right';
+const HELP_ZH = '<b>鍵盤</b>：WASD 移動 · 滑鼠看 (點畫面鎖定) · Shift 衝刺/游泳加速/攀爬時放手 · 空白 跳/攀爬跳/空中開滑翔傘 · 左鍵 攻擊 · 右鍵按住 拉弓 · Q 按住 舉盾 · E 調查/撿 · R 使用符文 · 1-4 換符文 · Tab 背包 · M 地圖 · G/F 英傑之力 · 滾輪或 [ ] 換武器（拿著磁力物體時調整遠近）· C 攀爬時放手<br><b>手機</b>：左半邊搖桿，右半邊滑動看，右側按鈕';
+const HELP_EN = '<b>Keyboard</b>: WASD move · mouse look (click to lock) · Shift sprint / swim dash / let go while climbing · Space jump / climb-jump / open the glider in the air · Left click attack · hold Right click aim the bow · hold Q shield · E interact · R use rune · 1-4 choose rune · Tab inventory · M map · G/F champion gifts · wheel or [ ] switch weapons (magnet distance while holding) · C let go while climbing<br><b>Touch</b>: left half stick, right half drag to look, buttons on the right';
 
 // cooking: up to five ingredients
 export function cookMenu() {

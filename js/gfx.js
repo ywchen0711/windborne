@@ -6,6 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { W, HGRID, groundH, colorAt, normalAt, TREES, ROCKS, POI, CASTLE, VILLAGE, SPOT, regionAt, snowLine, roadDist, BOXES } from './world.js';
 import { toon, glowMat, outline, makeNPC, weaponMesh } from './models.js';
@@ -20,8 +21,20 @@ export function createGfx(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(58, 16 / 9, 0.1, 2600);
-  const composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.5, 0.86); composer.addPass(bloom); composer.addPass(new OutputPass());
+  // render into a multisampled target so edges stay smooth through the post effects
+  const rt = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, samples: 4 });
+  const composer = new EffectComposer(renderer, rt); composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.3, 0.55, 0.88); composer.addPass(bloom); composer.addPass(new OutputPass());
+  // painterly grade: a little more colour and contrast, warm highlights, cool shadows, a soft vignette
+  const grade = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, uVig: { value: 0.38 }, uSat: { value: 1.14 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float uVig, uSat; varying vec2 vUv;
+      void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+        c.rgb = mix(vec3(l), c.rgb, uSat); c.rgb = (c.rgb - 0.5) * 1.06 + 0.5;
+        c.rgb += vec3(0.025, 0.012, -0.02) * smoothstep(0.45, 1.0, l) + vec3(-0.012, 0.0, 0.025) * (1.0 - smoothstep(0.0, 0.35, l));
+        vec2 v = vUv - 0.5; c.rgb *= 1.0 - uVig * dot(v, v) * 1.6; gl_FragColor = c; }`,
+  }); composer.addPass(grade);
   const world = new THREE.Group(), inside = new THREE.Group(); scene.add(world); scene.add(inside);
 
   // ---------------------------------------------------------------- light and sky
@@ -59,7 +72,20 @@ export function createGfx(canvas) {
     }
     for (let j = 0; j < W.n; j++) for (let i = 0; i < W.n; i++) { const a = j * N1 + i, b = a + 1, c = a + N1, d = c + 1; idx.push(a, c, d, a, d, b); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(colr, 3)); g.setIndex(idx); g.computeVertexNormals();
-    const terrain = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true })); terrain.receiveShadow = true; world.add(terrain);
+    const tm = new THREE.MeshLambertMaterial({ vertexColors: true });
+    tm.onBeforeCompile = (sh) => {
+      sh.vertexShader = 'varying vec3 vWP; varying vec3 vWN;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n vWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * objectNormal);');
+      sh.fragmentShader = `varying vec3 vWP; varying vec3 vWN;
+        float hh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hh(i), hh(i + vec2(1, 0)), f.x), mix(hh(i + vec2(0, 1)), hh(i + vec2(1, 1)), f.x), f.y); }
+        ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        float n1 = vn(vWP.xz * 0.35), n2 = vn(vWP.xz * 1.7), n3 = vn(vWP.xz * 0.06);
+        diffuseColor.rgb *= 0.86 + n1 * 0.18 + n2 * 0.08 + (n3 - 0.5) * 0.12;
+        float steep = 1.0 - smoothstep(0.55, 0.8, vWN.y);
+        float strata = 0.85 + 0.15 * sin(vWP.y * 2.2 + vn(vWP.xz * 0.5) * 4.0);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * strata * vec3(0.95, 0.93, 0.9), steep);`);
+    };
+    const terrain = new THREE.Mesh(g, tm); terrain.receiveShadow = true; world.add(terrain);
     // a skirt of sea floor beyond the island
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshLambertMaterial({ color: '#2a4a5a' })); floor.rotation.x = -Math.PI / 2; floor.position.y = -42; world.add(floor);
   }
@@ -67,12 +93,42 @@ export function createGfx(canvas) {
   const waterTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.fillStyle = 'rgb(128,128,255)'; g.fillRect(0, 0, 128, 128);
     for (let i = 0; i < 260; i++) { const x = hash2(i, 1) * 128, y = hash2(i, 2) * 128, r = 3 + hash2(i, 3) * 10, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(150,150,255,0.5)'); gr.addColorStop(1, 'rgba(128,128,255,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
     const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(220, 220); return t; })();
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(3400, 3400), new THREE.MeshPhongMaterial({ color: '#3a8ad8', transparent: true, opacity: 0.8, shininess: 90, specular: '#ffffff', normalMap: waterTex, normalScale: new THREE.Vector2(0.6, 0.6) }));
-  water.rotation.x = -Math.PI / 2; water.position.y = W.sea + 0.02; water.receiveShadow = true; world.add(water);
+  const waterU = { uTime: { value: 0 } };
+  const waterMat = new THREE.MeshPhongMaterial({ color: '#ffffff', vertexColors: true, transparent: true, opacity: 0.86, shininess: 110, specular: '#ffffff', normalMap: waterTex, normalScale: new THREE.Vector2(0.55, 0.55) });
+  waterMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = waterU.uTime;
+    sh.vertexShader = 'attribute float depth; varying float vDepth; varying vec3 vWPw;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n vDepth = depth; vWPw = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = 'uniform float uTime; varying float vDepth; varying vec3 vWPw;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      vec3 shallow = vec3(0.36, 0.86, 0.82), mid = vec3(0.16, 0.56, 0.82), deep = vec3(0.06, 0.24, 0.52);
+      vec3 wc = mix(shallow, mid, smoothstep(0.0, 3.5, vDepth)); wc = mix(wc, deep, smoothstep(3.5, 22.0, vDepth));
+      float foam = (1.0 - smoothstep(0.0, 0.9, vDepth)) * (0.55 + 0.45 * sin(uTime * 1.6 + vWPw.x * 0.35 + vWPw.z * 0.3));
+      diffuseColor.rgb = mix(wc, vec3(1.0), clamp(foam, 0.0, 1.0) * 0.85);
+      diffuseColor.a *= mix(0.7, 0.95, smoothstep(0.0, 6.0, vDepth));`);
+  };
+  // the sheet near the island follows the land's grid, so every vertex knows how deep the water is there
+  const water = (() => {
+    const n = 200, size = 1800, g = new THREE.PlaneGeometry(size, size, n, n); g.rotateX(-Math.PI / 2);
+    const P = g.attributes.position, d = new Float32Array(P.count);
+    for (let i = 0; i < P.count; i++) d[i] = Math.max(0, W.sea - groundH(P.getX(i), P.getZ(i)));
+    g.setAttribute('depth', new THREE.BufferAttribute(d, 1));
+    const c = new Float32Array(P.count * 3).fill(1); g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    const m = new THREE.Mesh(g, waterMat); m.position.y = W.sea + 0.02; m.receiveShadow = true; world.add(m);
+    const og = new THREE.RingGeometry(890, 4000, 64, 1); og.rotateX(-Math.PI / 2); const od = new Float32Array(og.attributes.position.count).fill(40); og.setAttribute('depth', new THREE.BufferAttribute(od, 1));
+    og.setAttribute('color', new THREE.BufferAttribute(new Float32Array(og.attributes.position.count * 3).fill(1), 3));
+    const outer = new THREE.Mesh(og, waterMat); outer.position.y = W.sea; world.add(outer);
+    return m;
+  })();
   { const ly = groundH(SPOT.volcano.x, SPOT.volcano.z) + 3, lava = new THREE.Mesh(new THREE.CircleGeometry(48, 32), glowMat('#ff5a1a', 2.2)); lava.rotation.x = -Math.PI / 2; lava.position.set(SPOT.volcano.x, ly, SPOT.volcano.z); world.add(lava); }
 
   // ---------------------------------------------------------------- trees and rocks, in chunks that hide when far away
   const treeMat = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: toon('#fff').gradientMap });
+  const windU = { uTime: { value: 0 } };
+  treeMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = windU.uTime;
+    sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      vec4 tp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0); float bend = max(0.0, position.y - 1.6) * 0.045;
+      transformed.x += sin(uTime * 1.3 + tp.x * 0.11 + tp.z * 0.07) * bend; transformed.z += cos(uTime * 1.1 + tp.z * 0.09) * bend * 0.6;`);
+  };
   const TG = {
     oak: mergeGeometries([colored(at(new THREE.CylinderGeometry(0.3, 0.45, 3.2, 7), 0, 1.6, 0), '#6a4a2e'), colored(at(new THREE.IcosahedronGeometry(2.2, 1), 0, 4.4, 0), '#4a8a3a'), colored(at(new THREE.IcosahedronGeometry(1.5, 1), 1.2, 3.8, 0.6), '#5a9a42'), colored(at(new THREE.IcosahedronGeometry(1.4, 1), -1.1, 4.0, -0.5), '#3f7a34')]),
     apple: mergeGeometries([colored(at(new THREE.CylinderGeometry(0.3, 0.45, 3.2, 7), 0, 1.6, 0), '#6a4a2e'), colored(at(new THREE.IcosahedronGeometry(2.2, 1), 0, 4.4, 0), '#4a8a3a'), colored(at(new THREE.IcosahedronGeometry(1.5, 1), 1.2, 3.8, 0.6), '#5a9a42'),
@@ -93,13 +149,15 @@ export function createGfx(canvas) {
     const grp = new THREE.Group(); const [ci, cj] = k.split(',').map(Number); grp.userData.c = [-W.half + (ci + 0.5) * CH, -W.half + (cj + 0.5) * CH];
     for (const [type, list] of Object.entries(types)) {
       const im = new THREE.InstancedMesh(type === 'rock' ? rockGeo : TG[type], treeMat, list.length);
-      list.forEach((mm, i) => im.setMatrixAt(i, mm)); im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); grp.add(im);
+      const tint = new THREE.Color();
+      list.forEach((mm, i) => { im.setMatrixAt(i, mm); const h = hash2(i, type.length, ci * 31 + cj); tint.setRGB(0.86 + h * 0.24, 0.9 + hash2(i, 3, cj) * 0.2, 0.84 + hash2(i, 5, ci) * 0.2); im.setColorAt(i, tint); });
+      im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); grp.add(im);
     }
     world.add(grp); chunks.set(k, grp);
   }
   // ---------------------------------------------------------------- grass around the player
   // a blade: two faces (one each way) with normals pointing up, so both sides catch the light like the ground
-  const bladeGeo = (() => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.05, 0, 0, 0.05, 0, 0, 0.0, 0.46, 0.02, -0.05, 0, 0, 0.0, 0.46, 0.02, 0.05, 0, 0]), 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]), 3)); return g; })();
+  const bladeGeo = (() => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.06, 0, 0, 0.06, 0, 0, 0.0, 0.55, 0.03, -0.06, 0, 0, 0.0, 0.55, 0.03, 0.06, 0, 0]), 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]), 3)); return g; })();
   const grassU = { uTime: { value: 0 }, uPlayer: { value: new THREE.Vector3() } };
   const grassMat = new THREE.MeshLambertMaterial();
   grassMat.onBeforeCompile = (sh) => {
@@ -107,9 +165,11 @@ export function createGfx(canvas) {
     sh.vertexShader = 'uniform float uTime; uniform vec3 uPlayer;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
       vec4 wp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0); float hh = position.y;
       transformed.x += sin(uTime * 2.1 + wp.x * 0.35 + wp.z * 0.2) * 0.14 * hh; transformed.z += cos(uTime * 1.6 + wp.z * 0.4) * 0.07 * hh;
-      vec2 away = wp.xz - uPlayer.xz; float dd = length(away); if (dd < 1.2) transformed.xz += normalize(away + 0.001) * (1.2 - dd) * 0.5 * hh;`);
+      vec2 away = wp.xz - uPlayer.xz; float dd = length(away); if (dd < 1.2) transformed.xz += normalize(away + 0.001) * (1.2 - dd) * 0.5 * hh;
+      vTip = hh / 0.55;`).replace('void main() {', 'varying float vTip;\nvoid main() {');
+    sh.fragmentShader = 'varying float vTip;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= mix(0.55, 1.18, vTip);');
   };
-  const GMAX = 9000, grass = new THREE.InstancedMesh(bladeGeo, grassMat, GMAX); grass.count = 0; grass.receiveShadow = true; grass.frustumCulled = false;
+  const GMAX = 16000, grass = new THREE.InstancedMesh(bladeGeo, grassMat, GMAX); grass.count = 0; grass.receiveShadow = true; grass.frustumCulled = false;
   grass.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GMAX * 3), 3); world.add(grass);
   let grassKey = '';
   function updateGrass(px, pz, on) {
@@ -122,13 +182,15 @@ export function createGfx(canvas) {
       if (reg === 'desert' || reg === 'volcano') continue;
       const h0 = groundH(tx + 3, tz + 3); if (h0 < 1.5 || h0 > snowLine(tx, tz) - 12) continue;
       const base = colorAt(tx + 3, tz + 3, h0, 10);
-      for (let k = 0; k < 80 && n < GMAX; k++) {
+      for (let k = 0; k < 140 && n < GMAX; k++) {
         const x = tx + hash2(ti + a, tj + b, k * 3) * T, z = tz + hash2(ti + a, tj + b, k * 3 + 1) * T, h = groundH(x, z);
         if (h < 1.2 || roadDist(x, z) < 2.6) continue;
         const nn = normalAt(x, z); if (nn[1] < 0.8) continue;
         const s = 0.7 + hash2(x | 0, z | 0, 7) * 0.8;
         q.setFromEuler(e.set(0, hash2(k, a, b) * 6.28, 0)); m4.compose(v.set(x, h - 0.03, z), q, sc.set(s, s, s)); grass.setMatrixAt(n, m4);
-        const f = 0.85 + hash2(k, b, a) * 0.3; cc.setRGB(base[0] * f * 1.05, base[1] * f * 1.12, base[2] * f); grass.setColorAt(n, cc); n++;
+        const f = 0.85 + hash2(k, b, a) * 0.3, fl = hash2(k * 7, a, b);
+        cc.setRGB(base[0] * f * (fl < 0.3 ? 1.12 : 1.02), base[1] * f * 1.12, base[2] * f * (fl < 0.3 ? 0.85 : 1)); void fl;
+        grass.setColorAt(n, cc); n++;
       }
     }
     grass.count = n; grass.instanceMatrix.needsUpdate = true; grass.instanceColor.needsUpdate = true;
@@ -234,6 +296,11 @@ export function createGfx(canvas) {
   const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: '#c8d8f0', transparent: true, opacity: 0.45 })); rain.frustumCulled = false; scene.add(rain); rain.visible = false;
   for (let i = 0; i < RN; i++) { rainPos[i * 6] = (Math.random() - 0.5) * 60; rainPos[i * 6 + 1] = Math.random() * 30; rainPos[i * 6 + 2] = (Math.random() - 0.5) * 60; }
 
+  const FN = 70, ffPos = new Float32Array(FN * 3), ffSeed = [];
+  for (let i = 0; i < FN; i++) ffSeed.push([Math.random() * 40 - 20, Math.random() * 3 + 0.4, Math.random() * 40 - 20, Math.random() * 6.28]);
+  const ffGeo = new THREE.BufferGeometry(); ffGeo.setAttribute('position', new THREE.BufferAttribute(ffPos, 3));
+  const ffMat = new THREE.PointsMaterial({ map: dotTex, size: 0.35, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: '#c8ff7a' });
+  const fireflies = new THREE.Points(ffGeo, ffMat); fireflies.frustumCulled = false; world.add(fireflies);
   // ---------------------------------------------------------------- time of day and weather
   const K = [ // hour: sky top, horizon, sun colour, sun power, ambient
     [0, '#060a1e', '#1a2440', '#8aa0ff', 0.25, 0.35], [4.5, '#0a1028', '#2a3050', '#8aa0ff', 0.2, 0.35], [6, '#3a5aa8', '#f0a878', '#ffb070', 1.4, 0.7],
@@ -275,7 +342,9 @@ export function createGfx(canvas) {
   // ---------------------------------------------------------------- each frame
   let t = 0, quality = 1;
   function frame(dt, focus) {
-    t += dt; grassU.uTime.value = t; sky.position.copy(camera.position);      // the sky dome travels with you, so it is never cut off grassU.uPlayer.value.set(focus.x, focus.y, focus.z);
+    t += dt; grassU.uTime.value = t; windU.uTime.value = t; waterU.uTime.value = t;
+    ffMat.color.set(night > 0.4 ? '#c8ff7a' : '#fff6d0'); ffMat.opacity = night > 0.4 ? 0.9 : 0.35; ffMat.size = night > 0.4 ? 0.35 : 0.12;
+    for (let i = 0; i < FN; i++) { const [x, y, z, ph] = ffSeed[i]; ffPos[i * 3] = focus.x + x + Math.sin(t * 0.4 + ph) * 2; ffPos[i * 3 + 1] = groundH(focus.x + x, focus.z + z) + y + Math.sin(t * 0.9 + ph) * 0.5; ffPos[i * 3 + 2] = focus.z + z + Math.cos(t * 0.3 + ph) * 2; } ffGeo.attributes.position.needsUpdate = true; sky.position.copy(camera.position);      // the sky dome travels with you, so it is never cut off grassU.uPlayer.value.set(focus.x, focus.y, focus.z);
     waterTex.offset.set(t * 0.004, t * 0.003);
     for (const f of places.fires) f.scale.setScalar(1.5 + Math.sin(t * 13 + f.position.x) * 0.15);
     for (const s of places.gloom || []) s.position.y += Math.sin(t * 0.8 + s.userData.a * 3) * 0.02;
@@ -286,7 +355,7 @@ export function createGfx(canvas) {
     if (rain.visible) { for (let i = 0; i < RN; i++) { let y = rainPos[i * 6 + 1] - dt * 26; if (y < 0) y += 30; rainPos[i * 6 + 1] = y; rainPos[i * 6 + 4] = y + 0.7; rainPos[i * 6 + 3] = rainPos[i * 6]; rainPos[i * 6 + 5] = rainPos[i * 6 + 2]; } rainGeo.attributes.position.needsUpdate = true; rain.position.set(camera.position.x, camera.position.y - 12, camera.position.z); }
     composer.render(dt);
   }
-  function resize(w, h, dpr) { const pr = Math.min(dpr, 2) * quality; renderer.setPixelRatio(pr); renderer.setSize(w, h, false); composer.setPixelRatio(pr); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  function resize(w, h, dpr) { const pr = Math.min(dpr, 2) * quality; renderer.setPixelRatio(pr); renderer.setSize(w, h, false); composer.setPixelRatio(pr); grade.uniforms.uVig.value = 0.38; composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
   function setInside(on) { world.visible = !on; inside.visible = on; sky.visible = !on; scene.fog.near = on ? 30 : 160; scene.fog.far = on ? 140 : 1100; if (on) { scene.fog.color.set('#0a0e16'); scene.background = new THREE.Color('#0a0e16'); } else scene.background = null; }
   return { renderer, scene, camera, world, inside, places, frame, resize, setTime, updateGrass, burst, glowSprite, fireTex, mapPicture, setInside, mesh, dotTex,
     setQuality(qv) { quality = qv; sun.shadow.mapSize.set(qv < 1 ? 1024 : 2048, qv < 1 ? 1024 : 2048); }, get night() { return night; } };

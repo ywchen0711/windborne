@@ -108,3 +108,36 @@ body.touch #mini { width: 120px; height: 120px; bottom: 10px; }
 #bossbar > i { display: block; height: 10px; background: rgba(0, 0, 0, .5); border: 1px solid rgba(255, 255, 255, .5); border-radius: 5px; overflow: hidden; }
 #bossbar > i > i { display: block; height: 100%; background: linear-gradient(90deg, #c02a6a, #ff4a7a); transition: width .2s; }
 @media (max-height: 500px) { #mini, body.touch #mini { width: 96px; height: 96px; } .slot { width: 54px; min-height: 44px; font-size: 14px; } .slot small { font-size: 9px; } .heart { width: 18px; height: 17px; } #objective { font-size: 11px; } .tb.pad { bottom: 112px; } .tb.top { right: 120px; } #prompt { bottom: 30%; } }
+
+/* ---------------- control hints, targeting, quick select, tips */
+kbd { display: inline-block; min-width: 22px; padding: 1px 6px; margin-right: 6px; border-radius: 5px; background: #f4f0e6; color: #1a2028; font: 700 12px/18px system-ui, sans-serif; text-align: center; box-shadow: 0 2px 0 #8a8a8a; text-shadow: none; }
+kbd.m { border-radius: 9px; background: #ffd890; }
+#hints { position: absolute; right: max(14px, env(safe-area-inset-right)); bottom: 178px; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; font-size: 13px; }
+#hints div { background: rgba(10, 16, 24, .5); padding: 3px 9px 3px 4px; border-radius: 14px; white-space: nowrap; }
+#hints div.hot { background: rgba(30, 120, 160, .75); }
+body.touch #hints { display: none; }
+#prompt kbd { font-size: 13px; }
+#prompt { bottom: auto; top: 62%; font-size: 16px; padding: 7px 16px 7px 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, .4); animation: pop .18s ease-out; }
+@keyframes pop { from { transform: translateX(-50%) scale(.85); opacity: 0; } }
+#target { position: absolute; left: 0; top: 0; display: none; transform: translate(-50%, -100%); pointer-events: none; }
+#target .mark { width: 0; height: 0; margin: 0 auto 3px; border-left: 9px solid transparent; border-right: 9px solid transparent; border-top: 13px solid #ffd040; filter: drop-shadow(0 1px 2px #000); animation: bob 0.8s ease-in-out infinite; }
+#target.lock .mark { border-top-color: #ff5a4a; }
+@keyframes bob { 50% { transform: translateY(-4px); } }
+#target .hp { width: 64px; height: 6px; background: rgba(0, 0, 0, .55); border: 1px solid rgba(255, 255, 255, .6); border-radius: 3px; overflow: hidden; display: none; }
+#target .hp i { display: block; height: 100%; background: #ff5a4a; transition: width .15s; }
+#quick { position: absolute; left: 50%; bottom: 90px; transform: translateX(-50%); display: flex; gap: 6px; opacity: 0; transition: opacity .25s; }
+#quick.on { opacity: 1; }
+#quick .q { width: 62px; height: 70px; background: rgba(10, 16, 24, .7); border: 2px solid rgba(255, 255, 255, .25); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; }
+#quick .q.on { border-color: #ffd040; transform: scale(1.12); box-shadow: 0 0 12px rgba(255, 208, 64, .6); }
+#quick .q svg { width: 36px; height: 36px; }
+#quick .q .bar { width: 46px; height: 3px; background: rgba(255, 255, 255, .15); margin-top: 3px; } #quick .q .bar i { display: block; height: 100%; background: #9ae86a; }
+#tip { position: absolute; left: max(14px, env(safe-area-inset-left)); top: 96px; max-width: 320px; background: rgba(10, 16, 24, .82); border: 1px solid #ffd890; border-left: 4px solid #ffd890; border-radius: 8px; padding: 10px 14px; font-size: 14px; line-height: 1.6; opacity: 0; transform: translateX(-20px); transition: opacity .4s, transform .4s; }
+#tip.on { opacity: 1; transform: none; }
+#tip b { color: #ffd890; display: block; margin-bottom: 2px; }
+#arrows { position: absolute; left: 50%; top: 50%; transform: translate(20px, 14px); font-size: 13px; display: none; }
+#reticle.enemy { border-color: #ff5a4a; box-shadow: 0 0 10px #ff5a4a; }
+#lockhint { position: fixed; left: 50%; top: 16%; transform: translateX(-50%); background: rgba(10, 16, 24, .78); border: 1px solid rgba(255, 255, 255, .45); border-radius: 22px; padding: 10px 22px; font-size: 16px; pointer-events: none; display: none; z-index: 12; animation: pulse 1.6s infinite; }
+.slot svg { width: 30px; height: 30px; display: block; margin: 0 auto; }
+.card { display: flex; gap: 8px; align-items: center; } .card .ic svg { width: 40px; height: 40px; } .card .tx { flex: 1; min-width: 0; }
+.tb.pad button { font-size: 12px; line-height: 1.1; }
+.tb.pad button b { display: block; font-size: 22px; }

@@ -44,7 +44,7 @@ const keys = new Set(), pressed = new Set(), touch = { mx: 0, my: 0, active: fal
 let mouseL = false, mouseR = false, wheel = 0, lookX = 0, lookY = 0;
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const KM = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right', ShiftLeft: 'sprint', ShiftRight: 'sprint', Space: 'jump',
-  KeyE: 'act', KeyR: 'rune', KeyQ: 'shield', Tab: 'menu', KeyI: 'menu', KeyM: 'map', Escape: 'esc', KeyG: 'gale', KeyF: 'fury', Digit1: 'r1', Digit2: 'r2', Digit3: 'r3', Digit4: 'r4', Enter: 'ok', KeyZ: 'attack', KeyX: 'bow', KeyC: 'drop' };
+  KeyE: 'act', KeyR: 'rune', KeyQ: 'shield', Tab: 'menu', KeyI: 'menu', KeyM: 'map', Escape: 'esc', KeyG: 'gale', KeyF: 'fury', Digit1: 'r1', Digit2: 'r2', Digit3: 'r3', Digit4: 'r4', Enter: 'ok', KeyZ: 'attack', KeyX: 'bow', KeyC: 'drop', BracketLeft: 'prevW', BracketRight: 'nextW' };
 addEventListener('keydown', (e) => {
   const k = KM[e.code]; if (!k) return; if (['Tab', 'Space'].includes(e.code) || e.code.startsWith('Arrow')) e.preventDefault();
   SND.unlock(); if (!keys.has(k)) pressed.add(k); keys.add(k);
@@ -101,9 +101,10 @@ function updateCamera(dt, aiming) {
   const sens = isTouch ? 0.0045 : 0.0026;
   camYaw -= lookX * sens; camPitch = Math.max(-0.75, Math.min(1.25, camPitch + lookY * sens)); lookX = lookY = 0;
   if (down('camL')) camYaw += dt * 2; if (down('camR')) camYaw -= dt * 2;
-  if (!magnetHeld && wheel) { camDist = Math.max(3, Math.min(11, camDist + wheel * 0.6)); }
+
   aimK += ((aiming ? 1 : 0) - aimK) * Math.min(1, dt * 10);
-  const dist = (inShrine ? Math.min(camDist, 6) : camDist) * (1 - aimK) + 2.4 * aimK;
+  const dist = (inShrine ? Math.min(camDist, 6) : camDist) * (1 - aimK) + 3.3 * aimK;
+  const fov = 58 - 20 * aimK; if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
   const fx = Math.sin(camYaw), fz = Math.cos(camYaw), rx = -Math.cos(camYaw), rz = Math.sin(camYaw);
   camTarget.set(B.x + rx * 0.9 * aimK, B.y + (B.mode === 'swim' ? 0.4 : 1.55), B.z + rz * 0.9 * aimK);
   const cp = Math.cos(camPitch), sp = Math.sin(camPitch);
@@ -137,7 +138,11 @@ function giveItem(item, quiet) {
     const list = k === 'w' ? S.weapons : k === 'b' ? S.bows : S.shields, DEF = k === 'w' ? WEAPONS : k === 'b' ? BOWS : SHIELDS;
     if (list.length >= S.slots[k]) { msg(T('欄位滿了，丟掉一些再來吧。', 'Your pouch is full. Drop something first.')); return false; }
     list.push({ id, dur: DEF[id].dur }); if (S.eq[k] < 0) S.eq[k] = list.length - 1;
-    if (!quiet) msg(`✦ ${UI.name(id)}`); gearChanged(); return true;
+    if (!quiet) msg(`✦ ${UI.name(id)}`); gearChanged();
+    if (k === 'w') tipOnce('weapon', ['武器', 'Weapons'], isTouch ? T(['按 ⚔ 攻擊，會自動轉向附近的敵人。武器用久了會壞，按 ⇄ 換武器。', 'Tap ⚔ to attack; you turn to face nearby enemies. Weapons break with use: tap ⇄ to switch.']) : T(['按<kbd class="m">左鍵</kbd>攻擊，會自動轉向附近的敵人。武器用久了會壞掉，用<kbd class="m">滾輪</kbd>或 <kbd>[</kbd><kbd>]</kbd> 快速換武器。', 'Press <kbd class="m">Left click</kbd> to attack; you turn to face the nearest enemy. Weapons wear out and break: switch with the <kbd class="m">Wheel</kbd> or <kbd>[</kbd><kbd>]</kbd>.']));
+    if (k === 'b') { if (S.arrows < 10) S.arrows += 10; tipOnce('bow', ['弓箭', 'Bows'], isTouch ? T(['按住 🏹 瞄準（畫面會拉近），放開射出。在空中拉弓時間會變慢！', 'Hold 🏹 to aim (the view zooms in), release to shoot. Aiming in mid-air slows time!']) : T(['按住<kbd class="m">右鍵</kbd>（或 <kbd>X</kbd>）拉弓瞄準，放開就射出。準心變紅表示瞄準到敵人。跳起來或滑翔時拉弓，時間會變慢！', 'Hold <kbd class="m">Right click</kbd> (or <kbd>X</kbd>) to draw and aim; release to shoot. The reticle turns red on an enemy. Draw in mid-air to slow time!'])); }
+    if (k === 's') tipOnce('shield', ['盾牌', 'Shields'], isTouch ? T(['按住 🛡 舉盾。在敵人打中前一瞬間舉盾就是完美防禦！', 'Hold 🛡 to raise your shield. Raise it just before a hit for a Perfect Guard!']) : T(['按住 <kbd>Q</kbd> 舉盾擋下攻擊。在敵人打到你的前一瞬間舉盾，就是「完美防禦」，連雷射都能彈回去！', 'Hold <kbd>Q</kbd> to raise your shield. Raise it just before a hit lands for a Perfect Guard, which even sends lasers back!']));
+    return true;
   }
   if (k === 'o') { if (!S.outfits.includes(id)) S.outfits.push(id); if (!quiet) msg(`✦ ${UI.name(id)}`); return true; }
   if (k === 'm') { S.mats[id] = (S.mats[id] || 0) + 1; if (!quiet) msg(`${UI.name(id)} +1`); return true; }
@@ -157,7 +162,7 @@ function dropItem(id) { ents.addPickup(id, B.x + Math.sin(B.yaw) * 1.2, B.y, B.z
 // ---------------------------------------------------------------- the world's moving parts
 const game = {
   get S() { return S; }, player: P, level: () => L, levelId: () => (inShrine ? inShrine.id : 'world'), hidden: () => !started || !B,
-  hurt, msg, sfx: SND.sfx, combat: (boss) => SND.combat(boss), enemyDied, campCleared, exploded,
+  hurt, msg, sfx: SND.sfx, combat: (boss) => { SND.combat(boss); if (S) tipOnce('fight', ['戰鬥', 'Fighting'], T(['敵人頭上的黃色箭頭是目前的目標。攻擊時會自動面向它。被圍攻時舉盾或後退，也可以從遠處用弓射頭部造成更多傷害。', 'The yellow arrow marks your target; your attacks turn toward it. When outnumbered, raise your shield or back off, or shoot heads from afar for extra damage.'])); }, enemyDied, campCleared, exploded,
   // where a held metal object goes: along your line of sight, never below the ground
   magnetTarget: (pr) => { const d = magnetDist, x = camera.position.x + camDir.x * d, z = camera.position.z + camDir.z * d; return { x, y: Math.max(camera.position.y + camDir.y * d, groundAt(L, x, z, camera.position.y + 2).h + (pr ? pr.size[1] / 2 + 0.25 : 0.8)), z }; },
   gates: () => (inShrine ? inShrine.gates : []),
@@ -169,7 +174,7 @@ function spawnHero() {
   if (hero) gfx.scene.remove(hero);
   hero = makeHero(); gfx.scene.add(hero); setOutfit(hero, S.outfit);
 }
-let atkT = -1, atkDur = 0.4, atkKind = 'one', combo = 0, comboT = 0, swung = false, aiming = false, aimT = 0, blocking = false, blockStart = 0, invuln = 0, hurtFlash = 0, bombCD = 0, runeCD = 0, magnetHeld = null, magnetDist = 8, dead = false;
+let target = null, hitStop = 0, atkT = -1, atkDur = 0.4, atkKind = 'one', combo = 0, comboT = 0, swung = false, aiming = false, aimT = 0, blocking = false, blockStart = 0, invuln = 0, hurtFlash = 0, bombCD = 0, runeCD = 0, magnetHeld = null, magnetDist = 8, dead = false;
 const now = () => performance.now() / 1000;
 
 function startAttack() {
@@ -178,6 +183,7 @@ function startAttack() {
   if (w && w.rest > 0) { msg(T('這把劍正在休息，等一下再用吧。', 'This blade is resting. Wait a little.')); return; }
   atkKind = kind; atkDur = kind === 'two' ? 0.72 : kind === 'spear' ? 0.32 : 0.4; atkT = 0; swung = false;
   combo = comboT > 0 ? combo + 1 : 0; comboT = 1.0; SND.sfx('swing');
+  const tg = target && Math.hypot(target.x - B.x, target.z - B.z) < 7 ? target : null; if (tg) B.yaw = Math.atan2(tg.x - B.x, tg.z - B.z);
   if (B.mode === 'ground') { B.vx += Math.sin(B.yaw) * 2.5; B.vz += Math.cos(B.yaw) * 2.5; }
 }
 function doHit() {
@@ -193,9 +199,16 @@ function doHit() {
   }
   for (const pr of ents.props) { if (pr.frozen > 0 && pr.p.distanceTo(new THREE.Vector3(B.x, B.y + 1, B.z)) < reach + 1.4) { pr.impulse.addScaledVector(new THREE.Vector3(fx, 0.25, fz), Math.max(3, pow * 0.6)); SND.sfx('hit'); hits++; } }
   if (!inShrine) for (const o of POI.ores) { if (oreGone(o)) continue; if (Math.hypot(o.x - B.x, o.z - B.z) < reach + 1.2) { o.hits = (o.hits || 0) + (atkKind === 'two' ? 2 : 1); gfx.burst({ x: o.x, y: o.y + 0.8, z: o.z }, { n: 6, color: '#c8c0b0', add: false }); SND.sfx('hit'); if (o.hits >= 4) breakOre(o); hits++; } }
+  if (hits) { hitStop = 0.07; shake = Math.max(shake, 0.12); }
   if (hits && w && !WEAPONS[w.id].recharge) wear('w', hits);
   else if (hits && w && WEAPONS[w.id].recharge) { w.dur -= hits; if (w.dur <= 0) { w.dur = 0; w.rest = 90; msg(T('曉光之劍的光芒暗了下來……它需要休息。', 'The Sword of Dawn dims… it needs to rest.')); } }
 }
+function cycleWeapon(d) {
+  if (S.weapons.length < 2) { if (S.weapons.length) UI.quick(S.weapons, S.eq.w, WEAPONS); return; }
+  S.eq.w = (S.eq.w + d + S.weapons.length) % S.weapons.length; gearChanged(); SND.sfx('rune'); UI.quick(S.weapons, S.eq.w, WEAPONS);
+}
+// a tip shown the first time something happens
+function tipOnce(k, title, text) { S.tips = S.tips || {}; if (S.tips[k]) return; S.tips[k] = 1; UI.tip(title, text); }
 function wear(k, n = 1) {
   const list = k === 'w' ? S.weapons : k === 'b' ? S.bows : S.shields, it = list[S.eq[k]]; if (!it) return;
   it.dur -= n;
@@ -450,7 +463,7 @@ async function talk(n) {
     if (!S2.glider) {
       await UI.say(['老人', 'Old Man'], ['你辦到了。……其實，我是很久以前這個國家的國王，現在只剩下一縷魂魄。', 'You did it. …In truth, I was once the king of this land. Only my spirit remains.']);
       await UI.say(['國王之魂', 'The King\'s Spirit'], ['城堡被「黑潮魔影」佔據了。去東方的風谷村，見那裡的長老吧。', 'The Gloomshade has seized the castle. Go east to Windhollow Village and see the elder there.']);
-      S2.glider = true; S2.flags.hermitGone = 1; SND.sfx('heart'); UI.banner(T('滑翔傘', 'Paraglider'), T('在空中按跳躍打開，慢慢滑翔', 'Press jump in mid-air to glide'));
+      S2.glider = true; S2.flags.hermitGone = 1; tipOnce('glider', ['滑翔傘', 'Paraglider'], T(['跳起來後在空中再按一次<kbd>空白</kbd>打開滑翔傘，再按一次收起。滑翔會慢慢消耗精力。', 'Jump, then press <kbd>Space</kbd> again in mid-air to open the paraglider; press again to let go. Gliding slowly uses stamina.'])); SND.sfx('heart'); UI.banner(T('滑翔傘', 'Paraglider'), T('在空中按跳躍打開，慢慢滑翔', 'Press jump in mid-air to glide'));
       n.m.visible = false; S2.pin = [VILLAGE.x, VILLAGE.z]; objective(); save(); return;
     }
     return;
@@ -552,7 +565,8 @@ function frame() {
     gfx.setTime(7.5, false, camera.position); gfx.updateGrass(0, 0, false); gfx.frame(rdt, camera.position); SND.tick(rdt, false); return;
   }
   const paused = game.paused || UI.talking() || dead;
-  const dt = paused ? 0 : rdt * timeScale;
+  if (hitStop > 0) hitStop -= rdt;
+  const dt = paused ? 0 : rdt * timeScale * (hitStop > 0 ? 0.05 : 1);
   if (!paused) step(dt, rdt);
   pressed.clear(); wheel = 0;
   updateCamera(rdt, aiming || (S.rune && ['magnet', 'stasis', 'ice'].includes(S.rune) && down('runeAim')));
@@ -575,6 +589,8 @@ function frame() {
   if (boss) { bb.firstChild.textContent = boss.type === 'boss' ? T('黑潮魔影', 'The Gloomshade') : T({ frost: ['冰之災厄', 'Frostblight'], fire: ['火之災厄', 'Fireblight'], water: ['水之災厄', 'Waterblight'], thunder: ['雷之災厄', 'Thunderblight'] }[boss.kind]); bb.lastChild.firstChild.style.width = Math.max(0, (boss.hp / boss.max) * 100) + '%'; }
   $('#hurt').style.opacity = Math.max(0, hurtFlash * 2); hurtFlash = Math.max(0, hurtFlash - rdt);
   $('#lowhp').classList.toggle('on', S.hearts <= 4 && !dead);
+  const lh = $('#lockhint'), needLock = !isTouch && !document.pointerLockElement && !UI.menuOpen() && !UI.talking() && !dead;
+  lh.style.display = needLock ? 'block' : 'none'; if (needLock) lh.lastChild.textContent = T('點一下畫面，用滑鼠控制視角', 'Click the screen to control the camera with the mouse');
   // adapt the picture to slow devices
   frames++; fpsT += rdt; if (fpsT > 3) { const fps = frames / fpsT; frames = 0; fpsT = 0; if (fps < 26 && quality > 0.5) { quality = Math.max(0.5, quality - 0.25); gfx.setQuality(quality); resize(); } }
 }
@@ -588,7 +604,7 @@ function step(dt, rdt) {
   const busy = atkT >= 0 && B.mode === 'ground';
   inp.mx = (fx * iy + rx * ix) * (busy ? 0.15 : blocking ? 0.45 : aiming ? 0.5 : 1); inp.mz = (fz * iy + rz * ix) * (busy ? 0.15 : blocking ? 0.45 : aiming ? 0.5 : 1);
   inp.ix = ix; inp.iy = iy; inp.sprint = down('sprint') && !aiming && !blocking; inp.jump = hit('jump'); inp.drop = hit('sprint') || hit('drop');
-  if (B.mode === 'climb') inp.drop = hit('drop') || (hit('sprint') && !down('up'));
+  if (B.mode === 'climb') inp.drop = hit('drop') || hit('sprint');
   const ev = stepBody(B, dt, inp, L, { glider: S.glider, climbMul: outfit().climb || 1, stamMax: S.stamMax, updraft: updraftAt });
   if (ev.fall) { if (ev.fall > 34) { S.hearts = 0; dieNow(); } else if (ev.fall > 12) hurt(Math.round((ev.fall - 12) * 1.1), { x: B.x, z: B.z }, 'fall'); }
   if (ev.drown || ev.void) { const sp = ev.void && inShrine ? inShrine.start : B.safe; B.x = sp[0]; B.y = sp[1] + 0.2; B.z = sp[2]; B.vx = B.vy = B.vz = 0; B.mode = 'ground'; B.exhausted = false; B.stamina = Math.max(B.stamina, 0.3); S.hearts -= 2; hurtFlash = 0.4; SND.sfx('hurt'); msg(ev.drown ? T('你游不動了……', 'You ran out of strength…') : T('你掉下去了……', 'You fell…')); if (S.hearts <= 0) dieNow(); }
@@ -620,6 +636,8 @@ function step(dt, rdt) {
   if ((hit('fury') || (hit('gift') && S.gifts.fury && !S.gifts.gale)) && S.gifts.fury && S.giftT.fury <= 0) { S.giftT.fury = 300; SND.sfx('boom'); shake = 0.6; gfx.burst({ x: B.x, y: B.y + 2, z: B.z }, { n: 50, color: '#ffe040', speed: 10, life: 0.6 }); for (const e of ents.enemies) if (!e.dead && Math.hypot(e.x - B.x, e.z - B.z) < 10) ents.hurtEnemy(e, 45, B, { stun: 2 }); msg(T('雷霆之加護！', 'Thunder Gift!')); }
   for (const k of Object.keys(S.giftT)) S.giftT[k] = Math.max(0, S.giftT[k] - dt);
   // ---- menus
+  if (!magnetHeld && !aiming && wheel) cycleWeapon(Math.sign(wheel));
+  if (hit('nextW')) cycleWeapon(1); if (hit('prevW')) cycleWeapon(-1);
   if (hit('menu')) UI.openMenu('weapons');
   if (hit('map')) UI.openMenu('map');
   if (hit('esc')) { if (document.pointerLockElement) document.exitPointerLock(); else UI.openMenu('system'); }
@@ -630,7 +648,13 @@ function step(dt, rdt) {
   // ---- the reticle and rune targets
   const runeAim = S.rune && ['magnet', 'stasis', 'ice'].includes(S.rune) && S.runes[S.rune];
   let hot = false; if (runeAim) { const o = camera.position, d = camDir; hot = S.rune === 'magnet' ? !!(magnetHeld || ents.propOnRay(o, d, 'metal')) : S.rune === 'ice' ? !!waterOnRay(o, d) : !!(ents.propOnRay(o, d) || ents.enemyOnRay(o, d) || ents.gateOnRay(o, d)); }
-  UI.reticle(aiming || runeAim, hot);
+  if (aiming && !hot) hot = 'enemy' === (ents.enemyOnRay(camera.position, camDir) ? 'enemy' : '');
+  UI.reticle(aiming || runeAim, hot); $('#reticle').classList.toggle('enemy', aiming && !!ents.enemyOnRay(camera.position, camDir));
+  const ar = $('#arrows'); ar.style.display = aiming ? 'block' : 'none'; if (aiming) ar.textContent = `🏹 ${S.arrows}`;
+  // the target: the nearest enemy in front of the camera
+  target = null; let best = 16;
+  for (const e of ents.enemies) { if (e.dead || e.type === 'boar' || (!!e.inShrine !== !!inShrine) || !e.model.visible) continue; const dx = e.x - B.x, dz = e.z - B.z, d = Math.hypot(dx, dz); if (d > best) continue; if ((dx * camDir.x + dz * camDir.z) / (d || 1) < 0.35 && d > 3) continue; best = d; target = e; }
+  showHints();
   // ---- world things
   if (!inShrine) {
     for (const s of POI.seeds) if (s.kind === 'peak' && !S.seedsFound[s.id] && Math.hypot(s.x - B.x, s.z - B.z) < 2 && Math.abs(s.y + 1.6 - B.y - 1) < 2.5) foundSeed(s);
@@ -657,6 +681,27 @@ function step(dt, rdt) {
   saveT += rdt; if (saveT > 30) { saveT = 0; save(); }
   ents.update(dt);
   if (S.hearts > S.maxHearts * 4) S.hearts = S.maxHearts * 4;
+}
+function showHints() {
+  const h = [], cap = (k) => (k === 'L' ? T('左鍵', 'L-click') : k === 'R' ? T('右鍵', 'R-click') : k);
+  if (B.mode === 'climb') h.push([T('WASD', 'WASD'), T('攀爬', 'Climb')], [T('空白', 'Space'), T('往上跳', 'Climb jump')], ['C', T('放手', 'Let go')]);
+  else if (B.mode === 'glide') h.push([T('WASD', 'WASD'), T('轉向', 'Steer')], [T('空白', 'Space'), T('收起滑翔傘', 'Close glider')]);
+  else if (B.mode === 'swim') h.push(['Shift', T('加速游', 'Swim faster')], [T('空白', 'Space'), T('衝刺', 'Dash')]);
+  else if (aiming) h.push([T('放開右鍵', 'Release R'), T('射箭', 'Shoot'), true], [T('滑鼠', 'Mouse'), T('瞄準', 'Aim')]);
+  else if (magnetHeld) h.push(['R', T('放開', 'Let go'), true], [T('滑鼠', 'Mouse'), T('移動物體', 'Move it')], [T('滾輪', 'Wheel'), T('遠／近', 'Farther / nearer')]);
+  else {
+    h.push([cap('L'), cur('w') ? T('攻擊', 'Attack') : T('拳頭', 'Punch')]);
+    if (cur('b')) h.push([cap('R'), T('拉弓', 'Draw bow')]);
+    if (cur('s')) h.push(['Q', T('舉盾', 'Shield')]);
+    if (S.weapons.length > 1) h.push([T('滾輪', 'Wheel'), T('換武器', 'Switch weapon')]);
+    h.push([T('空白', 'Space'), B.mode === 'air' && S.glider ? T('滑翔傘', 'Glider') : T('跳', 'Jump')], ['Shift', T('衝刺', 'Sprint')]);
+    if (S.rune) h.push(['R', ents.props.some((p) => p.kind === 'bomb') ? T('引爆', 'Detonate') : T(UI.RUNE_NAME[S.rune])]);
+  }
+  UI.hints(h);
+  // where the target is on screen, with its health once it has been hurt
+  const tg = $('#target');
+  if (target && !aiming) { const T2 = ents.TYPES[target.type], sp = screenOf(target.x, target.y + T2.h + 0.4, target.z); tg.style.display = 'block'; tg.style.left = sp[0] + 'px'; tg.style.top = sp[1] + 'px'; tg.classList.toggle('lock', Math.hypot(target.x - B.x, target.z - B.z) < 7); const hp = tg.lastChild; hp.style.display = target.hp < target.max && target.type !== 'boss' && target.type !== 'blight' ? 'block' : 'none'; hp.firstChild.style.width = Math.max(0, (target.hp / target.max) * 100) + '%'; }
+  else tg.style.display = 'none';
 }
 function updraftAt(x, z, y) {
   for (const p of POI.pots.concat(POI.camps)) if (Math.hypot(p.x - x, p.z - z) < 2.2 && y - p.y < 22) return 7;

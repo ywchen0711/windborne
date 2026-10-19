@@ -17,14 +17,14 @@ const OUT = new THREE.MeshBasicMaterial({ color: '#141018', side: THREE.BackSide
 // a dark rim around a model: each part again, a little bigger, drawn inside out
 export function outline(g, w = 0.045) {
   const add = [];
-  g.traverse((o) => { if (o.isMesh && !o.userData.noOutline && o.material !== OUT) { const m = new THREE.Mesh(o.geometry, OUT); m.userData.noOutline = true; m.userData.isOutline = true; const s = o.geometry.boundingSphere || (o.geometry.computeBoundingSphere(), o.geometry.boundingSphere); const k = 1 + w / Math.max(0.05, s.radius); m.scale.setScalar(k); add.push([o, m]); } });
+  g.traverse((o) => { if (o.isMesh && !o.userData.noOutline && !o.userData.isOutline && o.material !== OUT) { const m = new THREE.Mesh(o.geometry, OUT); m.userData.noOutline = true; m.userData.isOutline = true; const s = o.geometry.boundingSphere || (o.geometry.computeBoundingSphere(), o.geometry.boundingSphere); const k = 1 + w / Math.max(0.05, s.radius); m.scale.setScalar(k); add.push([o, m]); } });
   for (const [o, m] of add) o.add(m);
   return g;
 }
 const geoCache = new Map();
 const G = (k, f) => { let g = geoCache.get(k); if (!g) { g = f(); geoCache.set(k, g); } return g; };
 const box = (w, h, d) => G(`b${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d));
-const sph = (r, a = 12, b = 10) => G(`s${r},${a}`, () => new THREE.SphereGeometry(r, a, b));
+const sph = (r, a = 12, b = 10, p0 = 0, p1 = Math.PI * 2, t0 = 0, t1 = Math.PI) => G(`s${r},${a},${b},${t1}`, () => new THREE.SphereGeometry(r, a, b, p0, p1, t0, t1));
 const cyl = (r1, r2, h, n = 10) => G(`c${r1},${r2},${h},${n}`, () => new THREE.CylinderGeometry(r1, r2, h, n));
 const cone = (r, h, n = 10) => G(`k${r},${h},${n}`, () => new THREE.ConeGeometry(r, h, n));
 const M = (geo, mat, x = 0, y = 0, z = 0, parent) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; if (parent) parent.add(m); return m; };
@@ -74,37 +74,59 @@ export function gliderMesh() {
 // ---------------------------------------------------------------- the hero
 export function makeHero() {
   const root = new THREE.Group(), body = pivot(root, 0, 0, 0);
-  const skin = toon('#f2c8a0'), hair = toon('#e0b050'), P = {};
+  const skin = toon('#f4cfa8'), hair = toon('#e8b850'), hairD = toon('#c8923a'), P = {};
+  const cap = (r, l) => G(`cap${r},${l}`, () => new THREE.CapsuleGeometry(r, l, 4, 10));
   P.hips = pivot(body, 0, 0.92, 0);
-  P.torso = M(box(0.42, 0.5, 0.26), toon('#3a6aa8'), 0, 0.27, 0, P.hips);
-  P.belt = M(box(0.44, 0.07, 0.28), toon('#6a4a2a'), 0, 0.05, 0, P.hips);
-  P.headP = pivot(P.hips, 0, 0.58, 0);
-  P.head = M(sph(0.2, 14, 12), skin, 0, 0.12, 0, P.headP);
-  P.hair = M(sph(0.215, 14, 10), hair, 0, 0.17, -0.03, P.headP); P.hair.scale.set(1, 0.85, 1.05);
-  M(box(0.1, 0.24, 0.08), hair, 0, 0.0, -0.17, P.headP);                                    // a short tail of hair
-  for (const s of [-1, 1]) M(sph(0.028, 6, 5), toon('#2a2a3a'), s * 0.07, 0.12, 0.18, P.headP);
-  for (const s of [-1, 1]) { const e = M(cone(0.04, 0.12, 5), skin, s * 0.21, 0.12, 0, P.headP); e.rotation.z = -s * 1.35; }
-  for (const [nm, s] of [['armL', 1], ['armR', -1]]) {
-    const a = P[nm] = pivot(P.hips, s * 0.27, 0.48, 0);
-    P[nm + 'u'] = M(box(0.12, 0.3, 0.12), toon('#3a6aa8'), 0, -0.14, 0, a);
-    const fore = P[nm + 'f'] = pivot(a, 0, -0.3, 0); M(box(0.1, 0.28, 0.1), skin, 0, -0.13, 0, fore);
-    P[nm + 'h'] = pivot(fore, 0, -0.3, 0);
+  // the tunic: a capsule chest with a flared skirt and a belt with a buckle
+  P.torso = M(cap(0.2, 0.28), toon('#3a6ab0'), 0, 0.3, 0, P.hips); P.torso.scale.set(1.05, 1, 0.78);
+  P.skirt = M(G('skirt', () => new THREE.CylinderGeometry(0.22, 0.31, 0.3, 12, 1, true)), toon('#3a6ab0', { side: THREE.DoubleSide }), 0, 0.02, 0, P.hips);
+  P.belt = M(cyl(0.225, 0.225, 0.07, 14), toon('#6a4426'), 0, 0.14, 0, P.hips); P.belt.scale.z = 0.8;
+  M(box(0.08, 0.07, 0.03), toon('#e8c050'), 0, 0.14, 0.18, P.hips);
+  M(box(0.06, 0.5, 0.03), toon('#6a4426'), 0.05, 0.36, 0.14, P.hips).rotation.z = 0.6;        // the strap across the chest
+  P.collar = M(cyl(0.12, 0.17, 0.08, 12), toon('#e8dcc0'), 0, 0.6, 0, P.hips);
+  // the head: big eyes, a nose, pointed ears and a mop of golden hair with bangs and a short tail
+  P.headP = pivot(P.hips, 0, 0.66, 0);
+  P.head = M(sph(0.21, 18, 14), skin, 0, 0.12, 0, P.headP); P.head.scale.set(1, 1.05, 0.95);
+  for (const sx of [-1, 1]) {
+    const w = M(sph(0.045, 10, 8), toon('#ffffff'), sx * 0.075, 0.12, 0.175, P.headP); w.scale.set(0.9, 1.25, 0.45); w.userData.noOutline = true;
+    const ir = M(sph(0.03, 10, 8), toon('#2a5aa0'), sx * 0.075, 0.115, 0.193, P.headP); ir.scale.set(0.9, 1.2, 0.4); ir.userData.noOutline = true;
+    const gl = M(sph(0.009, 6, 5), toon('#ffffff', { emissive: '#ffffff', emissiveIntensity: 0.8 }), sx * 0.075 + 0.01, 0.135, 0.205, P.headP); gl.userData.noOutline = true;
+    const br = M(box(0.07, 0.014, 0.02), hairD, sx * 0.075, 0.185, 0.19, P.headP); br.rotation.z = -sx * 0.15; br.userData.noOutline = true;
+    const ear = M(cone(0.045, 0.17, 6), skin, sx * 0.22, 0.13, -0.01, P.headP); ear.rotation.z = -sx * 1.25; ear.rotation.y = sx * 0.3;
   }
-  for (const [nm, s] of [['legL', 1], ['legR', -1]]) {
-    const l = P[nm] = pivot(P.hips, s * 0.11, 0, 0);
-    P[nm + 'm'] = M(box(0.15, 0.46, 0.16), toon('#8a6a4a'), 0, -0.23, 0, l);
-    M(box(0.16, 0.12, 0.24), toon('#5a3a22'), 0, -0.86 + 0.42, 0.03, l);
+  const nose = M(sph(0.022, 6, 5), toon('#e8b090'), 0, 0.075, 0.2, P.headP); nose.userData.noOutline = true;
+  const mouth = M(box(0.05, 0.01, 0.01), toon('#a85a50'), 0, 0.03, 0.193, P.headP); mouth.userData.noOutline = true;
+  P.hair = M(sph(0.228, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62), hair, 0, 0.15, -0.015, P.headP); P.hair.scale.set(1.04, 1, 1.06);
+  for (const [x, y, z, rz, rx] of [[-0.1, 0.25, 0.15, 0.5, 0.6], [0.0, 0.27, 0.17, 0, 0.7], [0.1, 0.25, 0.15, -0.5, 0.6], [-0.18, 0.16, 0.1, 0.9, 0.3], [0.18, 0.16, 0.1, -0.9, 0.3]]) { const b = M(cone(0.06, 0.18, 6), hair, x, y, z, P.headP); b.rotation.set(rx + Math.PI, 0, rz); }
+  for (const sx of [-1, 1]) { const lock = M(cap(0.035, 0.16), hair, sx * 0.19, 0.03, 0.05, P.headP); lock.rotation.z = sx * 0.1; }
+  const tail = M(cap(0.05, 0.16), hair, 0, 0.0, -0.22, P.headP); tail.rotation.x = 0.4;
+  M(sph(0.03, 6, 5), toon('#c83a3a'), 0, 0.1, -0.2, P.headP);                                     // the hair tie
+  // arms in sleeves, bare forearms with leather bracers, hands
+  for (const [nm, s2] of [['armL', 1], ['armR', -1]]) {
+    const a = P[nm] = pivot(P.hips, s2 * 0.25, 0.5, 0);
+    P[nm + 'u'] = M(cap(0.065, 0.18), toon('#3a6ab0'), 0, -0.14, 0, a);
+    const fore = P[nm + 'f'] = pivot(a, 0, -0.29, 0);
+    M(cap(0.055, 0.16), skin, 0, -0.12, 0, fore); M(cyl(0.065, 0.06, 0.12, 10), toon('#7a4e2c'), 0, -0.16, 0, fore);
+    M(sph(0.06, 8, 6), skin, 0, -0.27, 0, fore);
+    P[nm + 'h'] = pivot(fore, 0, -0.29, 0);
   }
-  P.back = pivot(P.hips, 0, 0.3, -0.18);
+  // trousers and tall boots
+  for (const [nm, s2] of [['legL', 1], ['legR', -1]]) {
+    const l = P[nm] = pivot(P.hips, s2 * 0.1, -0.02, 0);
+    P[nm + 'm'] = M(cap(0.075, 0.3), toon('#8a6a4a'), 0, -0.2, 0, l);
+    M(cap(0.08, 0.2), toon('#5a3a22'), 0, -0.6, 0.0, l);
+    M(box(0.15, 0.08, 0.24), toon('#4a2e1a'), 0, -0.82, 0.04, l);
+  }
+  P.back = pivot(P.hips, 0, 0.32, -0.17);
   P.glider = gliderMesh(); P.glider.position.set(0, 2.1, 0); P.glider.visible = false; body.add(P.glider);
-  outline(root, 0.04);
+  outline(root, 0.035);
   root.userData.P = P; root.userData.body = body;
   root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return root;
 }
 export function setOutfit(hero, id) {
   const o = OUTFITS[id] || OUTFITS.traveler, P = hero.userData.P;
-  P.torso.material = toon(o.col[0]); P.armLu.material = toon(o.col[0]); P.armRu.material = toon(o.col[0]); P.legLm.material = toon(o.col[1]); P.legRm.material = toon(o.col[1]);
+  P.torso.material = toon(o.col[0]); P.skirt.material = toon(o.col[0], { side: THREE.DoubleSide }); P.armLu.material = toon(o.col[0]); P.armRu.material = toon(o.col[0]); P.legLm.material = toon(o.col[1]); P.legRm.material = toon(o.col[1]);
 }
 // gear in hand / on the back: { weapon, bow, shield } ids; hold: 'weapon' | 'bow' | null
 export function setGear(hero, gear, hold) {
@@ -157,18 +179,24 @@ export function poseHero(hero, s) {
 
 // ---------------------------------------------------------------- enemies and animals
 export function makeGoblin(tier = 0) {
-  const col = ['#d85a4a', '#4a6ad8', '#3a3040', '#e8e0d0'][tier] || '#d85a4a', root = new THREE.Group(), P = {}, skin = toon(col);
-  P.hips = pivot(root, 0, 0.62, 0);
-  M(sph(0.36, 12, 10), skin, 0, 0.25, 0, P.hips).scale.set(1, 1.1, 0.9);
-  M(box(0.5, 0.18, 0.44), toon('#8a6a3a'), 0, -0.02, 0, P.hips);
-  P.headP = pivot(P.hips, 0, 0.62, 0.02);
-  M(sph(0.3, 12, 10), skin, 0, 0.05, 0, P.headP);
-  M(sph(0.12, 8, 6), toon('#f0e0a0'), 0, 0.05, 0.27, P.headP).scale.set(1.3, 0.8, 0.8);        // snout
-  for (const s of [-1, 1]) { M(sph(0.06, 8, 6), toon('#ffffff'), s * 0.11, 0.14, 0.24, P.headP); M(sph(0.03, 6, 5), toon('#1a1010'), s * 0.11, 0.14, 0.29, P.headP); const e = M(cone(0.08, 0.3, 5), skin, s * 0.3, 0.12, 0, P.headP); e.rotation.z = -s * 1.2; }
-  M(cone(0.06, 0.22, 6), toon('#f0e0c0'), 0, 0.38, 0, P.headP);
-  for (const [nm, s] of [['armL', 1], ['armR', -1]]) { P[nm] = pivot(P.hips, s * 0.38, 0.35, 0); M(cyl(0.07, 0.06, 0.5, 6), skin, 0, -0.25, 0, P[nm]); P[nm + 'h'] = pivot(P[nm], 0, -0.5, 0); }
-  for (const [nm, s] of [['legL', 1], ['legR', -1]]) { P[nm] = pivot(P.hips, s * 0.16, -0.05, 0); M(cyl(0.09, 0.08, 0.52, 6), skin, 0, -0.27, 0, P[nm]); }
-  outline(root, 0.05); root.userData.P = P; root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  const col = ['#e0604a', '#4a70e0', '#4a3a58', '#ece4d4'][tier] || '#e0604a', root = new THREE.Group(), P = {}, skin = toon(col), belly = toon(tier === 3 ? '#c8bca8' : '#f0c8a0');
+  const cap = (r, l) => G(`cap${r},${l}`, () => new THREE.CapsuleGeometry(r, l, 4, 10));
+  P.hips = pivot(root, 0, 0.6, 0);
+  M(sph(0.38, 14, 12), skin, 0, 0.28, 0, P.hips).scale.set(1, 1.08, 0.88);
+  M(sph(0.27, 12, 10), belly, 0, 0.2, 0.17, P.hips).scale.set(1, 1, 0.6);
+  M(G('loin', () => new THREE.CylinderGeometry(0.34, 0.42, 0.22, 10, 1, true)), toon('#7a5a32', { side: THREE.DoubleSide }), 0, -0.04, 0, P.hips);
+  P.headP = pivot(P.hips, 0, 0.64, 0.04);
+  M(sph(0.31, 14, 12), skin, 0, 0.05, 0, P.headP).scale.set(1.05, 0.95, 1);
+  M(sph(0.14, 10, 8), toon('#f0d8a8'), 0, -0.02, 0.27, P.headP).scale.set(1.35, 0.85, 0.8);
+  for (const sx of [-1, 1]) {
+    M(sph(0.065, 10, 8), toon('#fff4c0'), sx * 0.12, 0.14, 0.25, P.headP); const pu = M(sph(0.032, 8, 6), toon('#1a1010'), sx * 0.12, 0.14, 0.305, P.headP); pu.userData.noOutline = true;
+    const e = M(cone(0.09, 0.32, 6), skin, sx * 0.31, 0.14, 0, P.headP); e.rotation.z = -sx * 1.15;
+    const tk = M(cone(0.025, 0.09, 5), toon('#fff8e0'), sx * 0.07, -0.08, 0.36, P.headP); tk.userData.noOutline = true;
+  }
+  const horn = M(cone(0.07, 0.28, 7), toon('#f4ead0'), 0, 0.4, 0.02, P.headP); horn.rotation.x = -0.25;
+  for (const [nm, sx] of [['armL', 1], ['armR', -1]]) { P[nm] = pivot(P.hips, sx * 0.4, 0.4, 0); M(cap(0.075, 0.32), skin, 0, -0.24, 0, P[nm]); P[nm + 'h'] = pivot(P[nm], 0, -0.48, 0); M(sph(0.08, 8, 6), skin, 0, 0, 0, P[nm + 'h']); }
+  for (const [nm, sx] of [['legL', 1], ['legR', -1]]) { P[nm] = pivot(P.hips, sx * 0.17, -0.06, 0); M(cap(0.095, 0.3), skin, 0, -0.26, 0, P[nm]); M(box(0.17, 0.08, 0.24), toon('#5a3a22'), 0, -0.5, 0.05, P[nm]); }
+  outline(root, 0.045); root.userData.P = P; root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return root;
 }
 export function makeOgre() {

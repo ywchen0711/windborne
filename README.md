@@ -45,6 +45,8 @@ A 1.6 km island shaped by noise and hand-placed landmarks:
   - Space: jump / climb-jump / open the glider.
   - Left click: attack. Hold right click: aim the bow. Hold Q: shield.
   - E: interact. R: rune. 1-4: choose rune. Tab: inventory. M: map. G / F: gifts.
+  - Wheel or [ ]: switch weapons (magnet distance while holding something). C: let go while climbing.
+  - Attacks turn you toward the targeted enemy (yellow arrow). Hints in the corner change with what you are doing, and tips appear the first time you get a weapon, bow, shield or the glider.
 - **Touch:** a stick on the left, drag on the right to look, and buttons.
 
 ## Code
